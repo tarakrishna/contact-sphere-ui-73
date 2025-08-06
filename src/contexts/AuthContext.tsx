@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import axios from 'axios';
 import { useToast } from '@/hooks/use-toast';
+import { authAPI, setAuthToken } from '@/lib/api';
 
 export interface User {
   id: string;
@@ -19,10 +19,6 @@ export interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Configure axios defaults
-axios.defaults.baseURL = 'https://api.contactsphere.com'; // Replace with your API URL
-axios.defaults.headers.common['Content-Type'] = 'application/json';
-
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,8 +28,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Check for stored token on app load
     const token = localStorage.getItem('contactsphere_token');
     if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      // Verify token with backend (mock for now)
+      setAuthToken(token);
       verifyToken(token);
     } else {
       setLoading(false);
@@ -42,20 +37,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const verifyToken = async (token: string) => {
     try {
-      // Mock API call - replace with real endpoint
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Mock user data - replace with real API response
-      const mockUser: User = {
-        id: '1',
-        username: 'demo_user',
-        email: 'demo@contactsphere.com'
-      };
-      
-      setUser(mockUser);
+      const userData = await authAPI.getCurrentUser();
+      setUser(userData);
     } catch (error) {
       localStorage.removeItem('contactsphere_token');
-      delete axios.defaults.headers.common['Authorization'];
+      setAuthToken(null);
     } finally {
       setLoading(false);
     }
@@ -65,21 +51,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       setLoading(true);
       
-      // Mock API call - replace with real endpoint
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      const response = await authAPI.login({ email, password });
       
-      // Mock successful login
-      if (email && password) {
-        const mockToken = 'mock_jwt_token_' + Date.now();
-        const mockUser: User = {
-          id: '1',
-          username: email.split('@')[0],
-          email: email
-        };
-        
-        localStorage.setItem('contactsphere_token', mockToken);
-        axios.defaults.headers.common['Authorization'] = `Bearer ${mockToken}`;
-        setUser(mockUser);
+      if (response.token && response.user) {
+        localStorage.setItem('contactsphere_token', response.token);
+        setAuthToken(response.token);
+        setUser(response.user);
         
         toast({
           title: "Welcome to ContactSphere!",
@@ -89,11 +66,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return true;
       }
       
-      throw new Error('Invalid credentials');
-    } catch (error) {
+      throw new Error('Invalid response from server');
+    } catch (error: any) {
       toast({
         title: "Login Failed",
-        description: "Please check your credentials and try again.",
+        description: error.response?.data?.message || "Please check your credentials and try again.",
         variant: "destructive",
       });
       return false;
@@ -106,23 +83,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       setLoading(true);
       
-      // Mock API call - replace with real endpoint
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await authAPI.register({ username, email, password });
       
-      // Mock successful registration
-      if (username && email && password) {
-        toast({
-          title: "Registration Successful!",
-          description: "Please log in with your new account.",
-        });
-        return true;
-      }
-      
-      throw new Error('Registration failed');
-    } catch (error) {
+      toast({
+        title: "Registration Successful!",
+        description: "Please log in with your new account.",
+      });
+      return true;
+    } catch (error: any) {
       toast({
         title: "Registration Failed",
-        description: "Please try again with different credentials.",
+        description: error.response?.data?.message || "Please try again with different credentials.",
         variant: "destructive",
       });
       return false;
@@ -133,7 +104,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const logout = () => {
     localStorage.removeItem('contactsphere_token');
-    delete axios.defaults.headers.common['Authorization'];
+    setAuthToken(null);
     setUser(null);
     toast({
       title: "Logged Out",
